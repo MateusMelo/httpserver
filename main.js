@@ -1,53 +1,68 @@
 import net from "net"
 
-const server = net.createServer((stream) => {
-    console.log("client connected.");
-    const request = {
-        method: '',
-        version: '',
-        resource: '',
-        headers: {},
-        body: ''
-    };
+const createHttpServer = ((handler) => {
+    const server = net.createServer();
+    const handleConnection = (socket) => {
+        socket.once("readable", () => {
+            const buffer = socket.read().toString();
+            const req = {};
+            const res = {
+                statusCode: 200,
+                statusText: "OK",
+                headers: {},
+                setHeader(key, value) {
+                    this.headers[key] = value; 
+                },
+                status(statusCode) {
+                    this.statusText = "OK";
+                    this.statusCode = statusCode;
+                },
+                send(data) {
+                    socket.write(`HTTP/1.1 ${this.statusCode} ${this.statusText}\r\n`)
+                    
+                    for (const [key, value] of Object.entries(this.headers)) {
+                        socket.write(`${key}: ${value}\r\n`);
+                    }
+                    
+                    socket.write(`\r\n`)
+                    socket.end(data)
+                }
+            };
+            const lines = buffer.split("\r\n");
 
-    const response = {
-        version: 'HTTP/1.1',
-        statusCode: '200',
-        statusText: 'OK',
-        headers: {},
-        body: ''
-    };
-    stream.on("data", (data) => {
-        const buffer = data.toString();
-        const lines = buffer.split("\r\n");
-        for (const line of lines) {
-            if (line.includes("HTTP")) {
-                const [method, resource, version] = line.split(" ");
-
-                console.log("firstline");
-                console.log(method, resource, version);
-            } else if (line.includes(":")) {''
-                const [key, value] = line.split(": ");
-                console.log("headers");
-                console.log(key, value);
-            } else if (line.length === 0) {
-                console.log("emptyline")
-            } else {
-                const body = line;
-                console.log("body");
-                console.log(body);
+            for (const line of lines) {
+                if (line.includes("HTTP")) {
+                    const [method, resource, version] = line.split(" ");
+                    req.method = method;
+                    req.version = version;
+                    req.resource = resource;
+                } else if (line.includes(":")) {
+                    const [key, value] = line.split(": ");
+                    if (!("headers" in req))
+                        req.headers = {};
+                    req.headers[key] = value;
+                } else if (line.length === 0) {
+                } else {
+                    req.body = line;
+                }
             }
-        }
-    })
+            
+            handler(req, res);
+        });
+    };
+    const handleError = (err) => {
+        throw err
+    };
 
-    stream.write("HTTP/1.1 200 OK\n\n")
-    stream.end()
-})
+    server.on("connection", handleConnection)
+    server.on("error", handleError)
+    return {
+        listen: (port) => server.listen(port)
+    }
+});
 
-server.on("error", (err) => {
-    throw err;
-})
-
-server.listen(8080, () => {
-    console.log("opened server on", server.address());
-})
+createHttpServer((req, res) => {
+    res.setHeader("Content-Type", "application/json");
+    res.status(200)
+    res.send(Buffer.from(JSON.stringify({ ok: true })));
+}).listen(7474)
