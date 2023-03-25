@@ -1,12 +1,37 @@
 import net from "net"
 
-const createHttpServer = ((handler) => {
+const createHttpServer = handler => {
     const server = net.createServer();
     const handleConnection = (socket) => {
         socket.once("readable", () => {
-            const buffer = socket.read().toString();
-            const req = {};
+            const req = {
+                method: null,
+                version: null,
+                resource: null,
+                headers: {},
+                body: {},
+                parse(buffer) {
+                    const bufferStr = buffer.toString();
+                    const lines = bufferStr.split("\r\n");
+
+                    for (const line of lines) {
+                        if (line.includes("HTTP")) {
+                            const [method, resource, version] = line.split(" ");
+                            this.method = method;
+                            this.version = version;
+                            this.resource = resource;
+                        } else if (line.includes(":")) {
+                            const [key, value] = line.split(": ");
+                            this.headers[key] = value;
+                        } else if (line.length === 0) {
+                        } else {
+                            this.body = line;
+                        }
+                    }
+                }
+            };
             const res = {
+                version: "HTTP/1.1",
                 statusCode: 200,
                 statusText: "OK",
                 headers: {},
@@ -18,7 +43,9 @@ const createHttpServer = ((handler) => {
                     this.statusCode = statusCode;
                 },
                 send(data) {
-                    socket.write(`HTTP/1.1 ${this.statusCode} ${this.statusText}\r\n`)
+                    socket.write(`${this.version} ${this.statusCode} ${this.statusText}\r\n`)
+
+                    this.setHeader("Content-Length", data.length)
                     
                     for (const [key, value] of Object.entries(this.headers)) {
                         socket.write(`${key}: ${value}\r\n`);
@@ -28,24 +55,8 @@ const createHttpServer = ((handler) => {
                     socket.end(data)
                 }
             };
-            const lines = buffer.split("\r\n");
-
-            for (const line of lines) {
-                if (line.includes("HTTP")) {
-                    const [method, resource, version] = line.split(" ");
-                    req.method = method;
-                    req.version = version;
-                    req.resource = resource;
-                } else if (line.includes(":")) {
-                    const [key, value] = line.split(": ");
-                    if (!("headers" in req))
-                        req.headers = {};
-                    req.headers[key] = value;
-                } else if (line.length === 0) {
-                } else {
-                    req.body = line;
-                }
-            }
+            
+            req.parse(socket.read())
             
             handler(req, res);
         });
@@ -59,7 +70,7 @@ const createHttpServer = ((handler) => {
     return {
         listen: (port) => server.listen(port)
     }
-});
+};
 
 createHttpServer((req, res) => {
     res.setHeader("Content-Type", "application/json");
